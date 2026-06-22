@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TGChat</title>
+<link rel="stylesheet" href="style.css">
+<script src="/socket.io/socket.io.js"></script>
+</head>
+<body class="theme-default">
+
+<!-- Auth Screen -->
+<div id="auth-screen" class="auth-screen">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <svg viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="24" fill="var(--accent)"/><path d="M10 24L20 34L38 14" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    <h1>TGChat</h1>
+    <p class="auth-subtitle">Быстрый мессенджер для всех</p>
+    <div class="avatar-pick-row">
+      <div class="avatar-preview" id="auth-avatar-preview">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/></svg>
+      </div>
+      <button class="btn-outline" onclick="document.getElementById('avatar-input').click()">Выбрать фото</button>
+      <input type="file" id="avatar-input" accept="image/*" style="display:none" onchange="previewAvatar(this)">
+    </div>
+    <input type="text" id="auth-username" placeholder="Юзернейм (без пробелов)" maxlength="32" class="auth-input">
+    <input type="text" id="auth-displayname" placeholder="Отображаемое имя" maxlength="64" class="auth-input">
+    <textarea id="auth-bio" placeholder="О себе (необязательно)" class="auth-input auth-textarea" rows="2"></textarea>
+    <button class="btn-primary btn-full" onclick="doAuth()">Войти</button>
+    <div id="auth-error" class="auth-error"></div>
+  </div>
+</div>
+
+<!-- App -->
+<div id="app" class="app hidden">
+  <!-- Sidebar -->
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="header-left">
+        <button class="icon-btn" onclick="toggleMenu()">☰</button>
+        <span class="sidebar-title">TGChat</span>
+      </div>
+      <div class="header-right">
+        <button class="icon-btn" title="Поиск" onclick="toggleSearch()">🔍</button>
+        <button class="icon-btn" title="Написать" onclick="showNewChatMenu()">✏️</button>
+      </div>
+    </div>
+    <div id="search-bar" class="search-bar hidden">
+      <input type="text" placeholder="Поиск..." oninput="filterChats(this.value)" class="search-input">
+    </div>
+    <div class="chat-list" id="chat-list"></div>
+  </div>
+
+  <!-- Slide-out menu -->
+  <div class="slide-menu hidden" id="slide-menu">
+    <div class="slide-menu-profile" onclick="openProfile(currentUser.username)">
+      <div class="avatar-wrap"><div class="avatar-circle" id="menu-avatar-circle"></div></div>
+      <div>
+        <div class="menu-name" id="menu-display-name"></div>
+        <div class="menu-username" id="menu-username-label"></div>
+      </div>
+    </div>
+    <div class="menu-items">
+      <button onclick="showSection('channels'); closeMenu()">📢 Каналы</button>
+      <button onclick="showSection('people'); closeMenu()">👥 Люди онлайн</button>
+      <button onclick="openEditProfile(); closeMenu()">✏️ Редактировать профиль</button>
+      <button onclick="openThemePicker(); closeMenu()">🎨 Тема оформления</button>
+      <hr>
+      <button onclick="doLogout()">🚪 Выйти</button>
+    </div>
+  </div>
+  <div class="slide-menu-overlay hidden" id="slide-overlay" onclick="closeMenu()"></div>
+
+  <!-- Main area -->
+  <div class="main" id="main">
+    <div class="empty-state" id="empty-state">
+      <div class="empty-icon">💬</div>
+      <h2>Выберите чат</h2>
+      <p>Начните переписку или присоединитесь к каналу</p>
+    </div>
+
+    <!-- Chat window -->
+    <div class="chat-window hidden" id="chat-window">
+      <div class="chat-header" id="chat-header">
+        <button class="icon-btn back-btn" onclick="closeChat()">←</button>
+        <div class="chat-header-info" onclick="openChatInfo()">
+          <div class="avatar-circle" id="chat-header-avatar"></div>
+          <div>
+            <div class="chat-header-name" id="chat-header-name"></div>
+            <div class="chat-header-sub" id="chat-header-sub"></div>
+          </div>
+        </div>
+        <div class="chat-header-actions">
+          <button class="icon-btn" title="Поиск в чате">🔍</button>
+        </div>
+      </div>
+
+      <div class="messages-area" id="messages-area"></div>
+
+      <div class="reply-preview hidden" id="reply-preview">
+        <div class="reply-bar"></div>
+        <div class="reply-content">
+          <div class="reply-name" id="reply-preview-name"></div>
+          <div class="reply-text" id="reply-preview-text"></div>
+        </div>
+        <button class="icon-btn" onclick="cancelReply()">✕</button>
+      </div>
+
+      <div class="input-area">
+        <button class="icon-btn attach-btn" onclick="document.getElementById('file-input').click()" title="Прикрепить">📎</button>
+        <input type="file" id="file-input" style="display:none" onchange="handleFileSelect(this)">
+        <button class="icon-btn" id="voice-btn" onmousedown="startRecording()" onmouseup="stopRecording()" ontouchstart="startRecording()" ontouchend="stopRecording()" title="Голосовое (удерживай)">🎤</button>
+        <button class="icon-btn" id="video-btn" onclick="startVideoMessage()" title="Кружок">📹</button>
+        <div class="text-input-wrap">
+          <textarea id="msg-input" placeholder="Сообщение..." rows="1" onkeydown="handleKey(event)" oninput="autoResize(this); sendTyping()"></textarea>
+        </div>
+        <button class="btn-send" id="send-btn" onclick="sendMessage()">➤</button>
+      </div>
+    </div>
+
+    <!-- Channels panel -->
+    <div class="panel hidden" id="channels-panel">
+      <div class="panel-header">
+        <button class="icon-btn" onclick="closePanel()">←</button>
+        <h2>Каналы</h2>
+        <button class="btn-primary btn-sm" onclick="showCreateChannel()">+ Создать</button>
+      </div>
+      <div id="channels-list" class="channels-list"></div>
+    </div>
+
+    <!-- People panel -->
+    <div class="panel hidden" id="people-panel">
+      <div class="panel-header">
+        <button class="icon-btn" onclick="closePanel()">←</button>
+        <h2>Люди онлайн</h2>
+      </div>
+      <div id="people-list" class="people-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Modals -->
+<div class="modal-overlay hidden" id="modal-overlay" onclick="closeModal()"></div>
+
+<!-- Profile modal -->
+<div class="modal hidden" id="profile-modal">
+  <div class="profile-modal-avatar" id="profile-modal-avatar-wrap">
+    <div class="avatar-circle-lg" id="profile-modal-avatar"></div>
+  </div>
+  <div class="profile-modal-info">
+    <h2 id="profile-modal-name"></h2>
+    <div class="profile-modal-username" id="profile-modal-username"></div>
+    <div class="profile-modal-bio" id="profile-modal-bio"></div>
+    <div class="profile-modal-status" id="profile-modal-status"></div>
+    <button class="btn-primary btn-full" id="profile-modal-btn" onclick="startDmFromProfile()">Написать сообщение</button>
+  </div>
+</div>
+
+<!-- Edit profile modal -->
+<div class="modal hidden" id="edit-profile-modal">
+  <h2>Редактировать профиль</h2>
+  <div class="avatar-pick-row">
+    <div class="avatar-circle" id="edit-avatar-preview"></div>
+    <button class="btn-outline" onclick="document.getElementById('edit-avatar-input').click()">Сменить фото</button>
+    <input type="file" id="edit-avatar-input" accept="image/*" style="display:none" onchange="previewEditAvatar(this)">
+  </div>
+  <input type="text" id="edit-displayname" placeholder="Имя" class="auth-input">
+  <textarea id="edit-bio" placeholder="О себе" class="auth-input auth-textarea" rows="3"></textarea>
+  <div class="modal-actions">
+    <button class="btn-outline" onclick="closeModal()">Отмена</button>
+    <button class="btn-primary" onclick="saveProfile()">Сохранить</button>
+  </div>
+</div>
+
+<!-- Create channel modal -->
+<div class="modal hidden" id="create-channel-modal">
+  <h2>Новый канал</h2>
+  <input type="text" id="channel-name-input" placeholder="Название канала" class="auth-input">
+  <textarea id="channel-desc-input" placeholder="Описание (необязательно)" class="auth-input auth-textarea" rows="2"></textarea>
+  <div class="modal-actions">
+    <button class="btn-outline" onclick="closeModal()">Отмена</button>
+    <button class="btn-primary" onclick="createChannel()">Создать</button>
+  </div>
+</div>
+
+<!-- Theme picker modal -->
+<div class="modal hidden" id="theme-modal">
+  <h2>Тема оформления</h2>
+  <div class="theme-grid" id="theme-grid"></div>
+  <div class="custom-theme-section">
+    <h3>Свои цвета</h3>
+    <div class="color-row">
+      <label>Акцент</label>
+      <input type="color" id="custom-accent" value="#2b5cef" oninput="applyCustomTheme()">
+    </div>
+    <div class="color-row">
+      <label>Фон</label>
+      <input type="color" id="custom-bg" value="#ffffff" oninput="applyCustomTheme()">
+    </div>
+    <div class="color-row">
+      <label>Текст</label>
+      <input type="color" id="custom-text" value="#000000" oninput="applyCustomTheme()">
+    </div>
+  </div>
+  <button class="btn-outline btn-full" onclick="closeModal()" style="margin-top:12px">Закрыть</button>
+</div>
+
+<!-- Video record modal -->
+<div class="modal hidden" id="video-modal">
+  <h2>Видеосообщение (кружок)</h2>
+  <div class="video-preview-wrap">
+    <video id="video-preview" autoplay muted playsinline class="video-circle-preview"></video>
+  </div>
+  <div id="video-timer" class="video-timer">0:00</div>
+  <div class="modal-actions">
+    <button class="btn-outline" id="video-cancel-btn" onclick="cancelVideo()">Отмена</button>
+    <button class="btn-primary" id="video-send-btn" onclick="stopVideo()">Отправить</button>
+  </div>
+</div>
+
+<!-- New chat menu -->
+<div class="popup-menu hidden" id="new-chat-menu">
+  <button onclick="showSection('channels'); closeNewChatMenu()">📢 Создать канал</button>
+  <button onclick="showSection('people'); closeNewChatMenu()">💬 Написать пользователю</button>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
